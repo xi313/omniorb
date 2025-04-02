@@ -1,0 +1,97 @@
+version: 1.0.{build}
+
+environment:
+  # Common variables
+  OMNIORB_VERSION: 4.3.0
+
+  matrix:
+    - APPVEYOR_BUILD_WORKER_IMAGE: Visual Studio 2017
+      ARCH: x64-msvc15
+      configuration: Release
+      CMAKE_GENERATOR: "Visual Studio 15 2017 Win64"
+      MSVCABR: "15"
+      PYTHONPATH: c:\Python37-x64\
+      PYTHONPATHOMNI: "/cygdrive/c/Python37-x64/python"
+      PYVER: "py37"
+    - APPVEYOR_BUILD_WORKER_IMAGE: Visual Studio 2017
+      ARCH: win32-msvc15
+      configuration: Release
+      CMAKE_GENERATOR: "Visual Studio 15 2017"
+      MSVCABR: "15"
+      PYTHONPATH: c:\Python37\
+      PYTHONPATHOMNI: "/cygdrive/c/Python37/python"
+      PYVER: "py37"
+    - APPVEYOR_BUILD_WORKER_IMAGE: Visual Studio 2015
+      ARCH: x64-msvc14
+      configuration: Release
+      CMAKE_GENERATOR: "Visual Studio 14 2015 Win64"
+      MSVCABR: "14"
+      PYTHONPATH: c:\Python36-x64\
+      PYTHONPATHOMNI: "/cygdrive/c/Python36-x64/python"
+      PYVER: "py36"
+    - APPVEYOR_BUILD_WORKER_IMAGE: Visual Studio 2015
+      ARCH: win32-msvc14
+      configuration: Release
+      CMAKE_GENERATOR: "Visual Studio 14 2015"
+      MSVCABR: "14"
+      PYTHONPATH: c:\Python36\
+      PYTHONPATHOMNI: "/cygdrive/c/Python36/python"
+      PYVER: "py36"
+  
+init:
+  # Uncomment next line, to allow RDP access from start
+  # - ps: iex ((new-object net.webclient).DownloadString('https://raw.githubusercontent.com/appveyor/ci/master/scripts/enable-rdp.ps1'))
+
+  # OmniOrb
+  - cmd: cd "C:\projects\"
+  - appveyor DownloadFile https://downloads.sourceforge.net/project/omniorb/omniORB/omniORB-%OMNIORB_VERSION%/omniORB-%OMNIORB_VERSION%.tar.bz2
+  - cmd: 7z x omniORB-%OMNIORB_VERSION%.tar.bz2
+  - cmd: 7z x omniORB-%OMNIORB_VERSION%.tar
+
+  # Pthread-Win32
+  - cmd: cd "C:\projects\"
+  - cmd: md pthreads-win32
+  - cmd: cd "C:\projects\"
+  - appveyor DownloadFile https://github.com/tango-controls/Pthread_WIN32/releases/download/2.9.1/pthreads-win32-2.9.1_%ARCH%.zip
+  - cmd: 7z -y x pthreads-win32-2.9.1_%ARCH%.zip -oC:\projects\pthreads-win32\
+
+  # Finally, return to project folder before repo is cloned
+  - cmd: cd "C:\projects\omniorb-windows-ci"
+  
+install:
+  - cmd: set PYTHONPATH=%PYTHONPATH%
+  - cmd: set path=%PATH%;c:\cygwin64\bin;%PYTHONPATH%
+  - cmd: set PATH=%PATH:C:\Program Files\Git\usr\bin;=%
+  - cmd: if %ARCH%==win32-msvc14 call "C:\Program Files (x86)\Microsoft Visual Studio 14.0\VC\vcvarsall.bat"
+  - cmd: if %ARCH%==x64-msvc14 call "C:\Program Files (x86)\Microsoft Visual Studio 14.0\VC\vcvarsall.bat" x64
+  - cmd: if %ARCH%==win32-msvc15 call "C:\Program Files (x86)\Microsoft Visual Studio\2017\Community\VC\Auxiliary\Build\vcvars32.bat"
+  - cmd: if %ARCH%==x64-msvc15 call "C:\Program Files (x86)\Microsoft Visual Studio\2017\Community\VC\Auxiliary\Build\vcvars64.bat"
+  - cmd: echo "Generator='%CMAKE_GENERATOR%'"
+  - cmd: echo "Platform='%platform%' (set by vcvars batch file)"
+  # OmniOrb
+  # For x64 platform, change linker option (the "win32" in the file name doesn't matter)
+  - ps: if (${env:platform} -Match "x64") {(get-content c:\projects\omniORB-${env:OMNIORB_VERSION}\mk\platforms\x86_win32_vs_${env:MSVCABR}.mk) | foreach-object {$_ -replace "-DEBUG", "-DEBUG -MACHINE:X64"} | set-content c:\projects\omniORB-${env:OMNIORB_VERSION}\mk\platforms\x86_win32_vs_${env:MSVCABR}.mk}
+  # Edit config to enable the right build, with right Python version
+  - ps: (get-content c:\projects\omniORB-${env:OMNIORB_VERSION}\config\config.mk) | foreach-object {$_ -replace "\#platform = x86_win32_vs_${env:MSVCABR}", "platform = x86_win32_vs_${env:MSVCABR}"} | set-content c:\projects\omniORB-${env:OMNIORB_VERSION}\config\config.mk
+  - ps: (get-content c:\projects\omniORB-${env:OMNIORB_VERSION}\mk\platforms\x86_win32_vs_${env:MSVCABR}.mk) | foreach-object {$_ -replace "\#PYTHON = /cygdrive/c/Python310/python", "PYTHON = ${env:PYTHONPATHOMNI}"} | set-content c:\projects\omniORB-${env:OMNIORB_VERSION}\mk\platforms\x86_win32_vs_${env:MSVCABR}.mk
+
+build_script:
+  - cmd: cd "C:\projects\omniORB-%OMNIORB_VERSION%\src"
+  - cmd: make export
+after_build:
+  - cmd: cd "C:\projects\omniorb-windows-ci"
+  # Generating zip
+  - cmd: 7z a omniorb-%OMNIORB_VERSION%_%ARCH%_%PYVER%.zip c:\projects\omniORB-%OMNIORB_VERSION%\bin\
+  - cmd: 7z a omniorb-%OMNIORB_VERSION%_%ARCH%_%PYVER%.zip c:\projects\omniORB-%OMNIORB_VERSION%\lib\
+  - cmd: 7z a omniorb-%OMNIORB_VERSION%_%ARCH%_%PYVER%.zip c:\projects\omniORB-%OMNIORB_VERSION%\include\
+
+on_failure:
+#  RDP for failure
+#  - ps: $blockRdp = $true; iex ((new-object net.webclient).DownloadString('https://raw.githubusercontent.com/appveyor/ci/master/scripts/enable-rdp.ps1'))
+
+on_finish:
+  #RDP for finish
+  #- ps: $blockRdp = $true; iex ((new-object net.webclient).DownloadString('https://raw.githubusercontent.com/appveyor/ci/master/scripts/enable-rdp.ps1'))
+
+artifacts:
+  - path: ./*.zip
